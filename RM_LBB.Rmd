@@ -1,0 +1,255 @@
+---
+title: "Linear Regression on Graduate Admission Prediction"
+author: "Johan Setiawan"
+date: "12/7/2021"
+output: rmdformats::readthedown
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction {.tabset}
+
+## About the data
+The data contains several parameters which are considered important during the application for Masters Programs.
+The parameters included are :
+
+- GRE Scores ( out of 340 )
+- TOEFL Scores ( out of 120 )
+- University Rating ( out of 5 )
+- Statement of Purpose and Letter of Recommendation Strength ( out of 5 )
+- Undergraduate GPA ( out of 10 )
+- Research Experience ( either 0 or 1 )
+- Chance of Admit ( ranging from 0 to 1 )
+
+## Business goal
+
+This is a dataset created to predict the chance of Graduate Admissions. It was built with the purpose of helping students in shortlisting universities with accordance to their profiles. The predicted output gives them a fair idea about their chances for a getting admitted into a particular university.
+
+## What we will do
+We will use linear regression model using Graduate Admission data from Kaggle. We want to know the relationship among variables, especially between the Admission_Chance with other variables. We also want to predict the chance of someone getting into a university using historical data. You can download the data here: https://www.kaggle.com/mohansacharya/graduate-admissions
+
+# Import Library
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(performance)
+library(MLmetrics)
+library(rmdformats)
+library(lmtest)
+library(performance)
+library(car)
+```
+
+# Data Preparation
+
+## Read data
+```{r}
+admission <- read.csv("data_input/Admission_Predict.csv") %>% 
+              select(-Serial.No.)
+rmarkdown::paged_table(admission)
+```
+
+## Renaming columns
+```{r}
+names(admission) <- c("GRE", "TOEFL", "University_Rating", "SOP_Strength", "LOR_Strength", "CGPA", "Research", "Admission_Chance")
+head(admission)
+```
+
+# Data Wrangling/Preprocessing
+
+## Check for missing values
+```{r}
+admission %>% 
+  is.na() %>% 
+  colSums()/nrow(admission)
+```
+No missing value, thus the data is well prepared.
+
+
+## Check if there are any mismatched data type and change them if necessary
+Changing them to the right data type will ease the data analytics and machine learning process.
+```{r}
+summary(admission)
+```
+Looks like we can change `University_Rating` and `Research` to Factor
+
+## Change the respective columns to the right data types
+```{r}
+admission <- 
+  admission %>% 
+  mutate_at(vars(University_Rating, Research), as.factor)
+
+str(admission)
+```
+# Exploratory Data Analysis
+
+## Check correlations among the numeric columns to the target column
+```{r}
+ggcorr(admission, label = T, hjust = 0.7)
+```
+Insights:
+  - ALl the numeric columns are positively correlated to the target column
+  - CGPA has the strongest correlation (0.9) to the admission chance
+  - TOEFL, SOP_Strength and LOR_Strength have the same weightage to how correlated they are to the Admission_Chance
+  
+## Plot a scatter plot of Admission_Chance against CGPA
+THis is done to dig deeper and confirm the strong correlation of the two of them
+```{r}
+plot(admission$CGPA, 
+     admission$Admission_Chance,
+     main = "Plot of CGPA against the Chance of Getting into College",
+     xlab = "Cummulative GPA", 
+     ylab = "Admission Chance")
+```
+
+The plot above perfectly illustrates a strong positive correlation between `Admission_Chance` and `CGPA`.
+The higher your CGPA, the higher your chance getting into a college
+
+
+## Plot a box plot for CGPA,TOEFL Admission_Chance
+
+Try to find any possible outliers
+
+```{r}
+boxplot(admission$CGPA,
+        main = "CGPA Data Distribution")
+```
+
+```{r}
+boxplot(admission$TOEFL,
+        main = "TOEFL Score Data Distribution")
+```
+
+```{r}
+boxplot(admission$Admission_Chance,
+        main = "Admission Chance Data Distribution")
+```
+
+# Cross Validation
+
+This step is necessary to prepare some "unseen" data for the ML model to determine its accuracy and performance
+We will use 75:25 proportion for this data set
+s
+## Splitting the data into train and test sets
+```{r}
+set.seed(123)
+index <- sample(nrow(admission), nrow(admission)*0.75)
+
+data_train <- admission[index,]
+data_test <- admission[-index,]
+```
+
+# Model Building
+
+## Build a model that uses all predictors
+```{r}
+model_admission_all <- lm(formula = Admission_Chance ~ ., data = data_train)
+summary(model_admission_all)
+```
+
+# Model Evaluation
+
+## Calculate the RMSE of the training data
+```{r}
+RMSE(y_pred = model_admission_all$fitted.values, y_true = data_train$Admission_Chance)
+```
+RMSE is really small, thus the model does well in the training data.
+
+
+## Make a prediction on data_test
+```{r}
+model_admission_all_pred <- predict(model_admission_all,
+                                    newdata = data_test %>% select(-Admission_Chance))
+
+RMSE(y_pred = model_admission_all_pred, y_true = data_test$Admission_Chance)
+```
+
+RMSE is even smaller, thus the model does not overfit.
+
+# Model fine-tuning{.tabset}
+
+To fine-tune the model, we can use Step-wise regression to find the best features to be used in the model so it can make the model much better.
+
+## Feature selection
+### Using Step-Wise regression with "backwards" direction 
+```{r}
+model_admission_back <- step(model_admission_all, 
+                             direction = "backward",
+                             trace = F)
+summary(model_admission_back)
+```
+### Try prediciting using the new model
+```{r}
+model_admission_back_pred <-predict(model_admission_back,
+                                    newdata = data_test %>% select(-Admission_Chance))
+RMSE(y_pred = model_admission_all_pred, y_true = data_test$Admission_Chance)
+```
+The RMSE is the same, thus, we can say move on to comparing both of the models' performance
+
+### Comparing the two models performance
+```{r}
+compare_performance(model_admission_all, model_admission_back)
+```
+Both models are similar, but the adj. R2 of `model_admission_all` is slightly lower and the AIC of . Thus we rather use the `model_admission_back` for the next predictions
+
+## Checking for assumptions {.tabset}
+
+### Linearity
+
+Why linearity is tested? Because linear regression model can only learn well on linear pattern.
+
+Let's take one of the strongly correlated predictor, `CGPA` to test out for linearity against the target variable:
+
+```{r}
+cor.test(x = admission$CGPA, y = admission$Admission_Chance)
+```
+Since the p-value is smaller than 0.05, thus we can say that `CGPA` and `Admission_Chance` are significantly correlated.
+
+### Normality
+
+Normality is to check whether the distribution of the model residual is normal.
+We use Saphiro test here to test for the Normality:
+```{r}
+shapiro.test(model_admission_back$residuals)
+```
+Since the p-value of the model is smaller than 0.05, thus it is saying that the distribution of model residual is normal.
+
+### Homoscedasticity
+
+Here we can see the distribution of the data fitted values against the residuals
+```{r}
+plot(model_admission_back$fitted.values, model_admission_back$residuals, ylim = c(-50,50))
+abline(h = 0, col = "red")
+```
+We will use Breusch-Pagan test to check for the Homoscedasticity:
+```{r}
+bptest(model_admission_back)
+```
+Since the p-value is smaller than 0.05, thus it is saying that heteroscedasticity doesn't happen in the model.
+
+### Multicolinearity
+
+We check multicolinearity to make sure that there is no dependency among the predictors that are used in the model.
+
+We use VIF to check for multicolinearity:
+```{r}
+vif(model_admission_back)
+```
+There is none of the values that goes beyond 10 among the variables, thus multicolinearity is nor present
+
+# Conclusion
+
+The predictors that are useful to describe the variances in the chance of being admistted to the university are GRE, TOEFL, LOR_Strength, CGPA and Research. Our final model has satisfied all four classical assumptions. The R-squared of the model is not high enough even after fine tuning with 79.3%  of the variables can explain the variances in the chance of being admitted to the university. We may use other models to have higher performance. 
+
+The accuracy of the model in predicting the car price is measured with RMSE, with training data has RMSE of 0.06451918 and testing data has RMSE of 0.0583371, suggesting that our model does not overfit the training model.
+
+We have already learn how to build a linear regression model and what need to be concerned when building the model.
+
+
+# Reference
+
+Mohan S Acharya, Asfia Armaan, Aneeta S Antony : A Comparison of Regression Models for Prediction of Graduate Admissions, IEEE International Conference on Computational Intelligence in Data Science 2019
+
+
